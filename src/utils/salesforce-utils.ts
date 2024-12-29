@@ -19,6 +19,24 @@ interface Attributes {
   url: string
 }
 
+interface Org {
+  alias?: string
+  username?: string
+  orgName?: string
+  orgId?: string
+}
+
+interface OrgListResult {
+  status: number
+  result: {
+    scratchOrgs?: Org[]
+    devHubs?: Org[]
+    sandboxes?: Org[]
+    other?: Org[]
+  }
+  warnings?: string[]
+}
+
 export const salesforce = {
   query: async (targetOrg: string, query: string) => {
     const command = `sf data query --target-org ${targetOrg} --query "${query}" --json`
@@ -31,5 +49,26 @@ export const salesforce = {
     }
 
     return queryResult.result.records
+  },
+
+  getAvailableOrgs: async () => {
+    const command = `sf org list --json`
+
+    const { stdout } = await execAsync(command)
+
+    const orgListResult = JSON.parse(stdout) as OrgListResult
+    if (!orgListResult || !orgListResult.result) {
+      throw new Error('No organizations found or invalid response from Salesforce.')
+    }
+
+    const { scratchOrgs = [], devHubs = [], sandboxes = [], other = [] } = orgListResult.result
+    const formatOrgs = (orgs: Org[]) => orgs.map(org => org.alias!).filter(Boolean)
+
+    return {
+      scratchOrgs: formatOrgs(scratchOrgs),
+      devHubs: formatOrgs(devHubs),
+      sandboxes: formatOrgs(sandboxes),
+      other: formatOrgs(other),
+    }
   },
 }

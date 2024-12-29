@@ -1,33 +1,31 @@
-import { exec } from 'child_process'
 import { Command } from 'commander'
-import Configstore from 'configstore'
 import fs from 'fs'
 import inquirer from 'inquirer'
-import os from 'os'
-import path from 'path'
-import { composeErrorMessage, log } from '../../utils/cli-utils.js'
+import { composeErrorMessage, loadAsync, log } from '../../utils/cli-utils.js'
+import { config } from '../../utils/config-utils.js'
+import { salesforce } from '../../utils/salesforce-utils.js'
 import { SyncOptions } from '../sync/sync.js'
+import { formatChoicesWithSeparator, normalizeFilesToSync, resolveDirectoryPath } from './config.utils.js'
 
-const CONFIGSTORE_NAME = 'SF_META_SYNC'
-const CONFIGS_KEY = 'CONFIGS'
-const CHOICE_NEW_CONFIG = 'New Configuration'
-const CHOICE_SHOW_CONFIG = 'Show Configuration JSON'
+const enum GlobalSettings {
+  CHOICE_NEW_CONFIG = 'New Configuration',
+  CHOICE_EDIT_TARGET_CONFIG = 'Salesforce - Default Target Organization',
+  CHOICE_SHOW_CONFIG = 'Show Configuration JSON',
+}
 
 const enum ConfigActions {
   EDIT = '✏️ EDIT',
   DELETE = '🗑️ DELETE',
 }
 
-const configStore = new Configstore(CONFIGSTORE_NAME, {})
-
-interface SyncConfig extends Partial<SyncOptions> {
+export interface SyncConfig extends Partial<SyncOptions> {
   alias: string
   filesToSync?: string
 }
 
-async function runConfigCommand() {
+async function configCommand() {
   try {
-    const configs = getConfigs()
+    const configs = config.getConfigs()
 
     if (!configs.length) {
       log.info('No configurations found, create new one.')
@@ -35,28 +33,37 @@ async function runConfigCommand() {
       return
     }
 
+    const currentTargetOrg = config.getDefaultTargetOrg()
+    const targetOrgChoice = `${GlobalSettings.CHOICE_EDIT_TARGET_CONFIG} (${currentTargetOrg ?? 'Not Set'})`
+
     const { choice } = await inquirer.prompt<{ choice: string }>([
       {
         name: 'choice',
         type: 'list',
-        message: 'Select Configuration:',
+        message: 'Select Action:',
         choices: [
-          CHOICE_NEW_CONFIG,
-          new inquirer.Separator(),
+          new inquirer.Separator('------- Global Settings ------'),
+          GlobalSettings.CHOICE_NEW_CONFIG,
+          targetOrgChoice,
+          GlobalSettings.CHOICE_SHOW_CONFIG,
+          new inquirer.Separator('------- Configurations -------'),
           ...configs.map(c => c.alias),
-          new inquirer.Separator(),
-          CHOICE_SHOW_CONFIG,
         ],
       },
     ])
 
-    if (choice === CHOICE_NEW_CONFIG) {
+    if (choice === GlobalSettings.CHOICE_NEW_CONFIG) {
       await upsertConfiguration(configs)
       return
     }
 
-    if (choice === CHOICE_SHOW_CONFIG) {
-      await openConfigFile()
+    if (choice === targetOrgChoice) {
+      await setDefaultTargetOrg(currentTargetOrg)
+      return
+    }
+
+    if (choice === GlobalSettings.CHOICE_SHOW_CONFIG) {
+      config.openConfigFile()
       return
     }
 
@@ -64,14 +71,6 @@ async function runConfigCommand() {
   } catch (error) {
     log.error(composeErrorMessage(error))
   }
-}
-
-function getConfigs(): SyncConfig[] {
-  return configStore.get(CONFIGS_KEY) ?? []
-}
-
-function saveConfigs(configs: SyncConfig[]) {
-  configStore.set(CONFIGS_KEY, configs)
 }
 
 async function upsertConfiguration(configs: SyncConfig[], configToEdit?: SyncConfig) {
@@ -124,14 +123,14 @@ async function upsertConfiguration(configs: SyncConfig[], configToEdit?: SyncCon
 
   if (!configToEdit) {
     configs.push(updatedConfig)
-    saveConfigs(configs)
+    config.saveConfigs(configs)
     log.success(`Configuration for alias "${updatedConfig.alias}" created successfully!`)
   } else {
     const newIndex = configs.findIndex(c => c.alias === updatedConfig.alias)
     if (newIndex !== -1) {
       configs[newIndex] = updatedConfig
     }
-    saveConfigs(configs)
+    config.saveConfigs(configs)
     log.success(`Configuration for alias "${updatedConfig.alias}" updated successfully!`)
   }
 }
@@ -175,15 +174,8 @@ async function deleteConfiguration(index: number, configs: SyncConfig[]) {
     return
   }
   configs.splice(index, 1)
-  saveConfigs(configs)
+  config.saveConfigs(configs)
   log.success(`Deleted configuration "${toDelete.alias}".`)
-}
-
-async function openConfigFile() {
-  const filePath = configStore.path
-  console.log(`Opening config file: ${filePath}`)
-  const opener = process.platform === 'win32' ? 'start' : process.platform === 'darwin' ? 'open' : 'xdg-open'
-  exec(`${opener} "${filePath}"`)
 }
 
 async function promptForDirectory(defaultValue = process.cwd()) {
@@ -215,13 +207,6 @@ async function promptForDirectory(defaultValue = process.cwd()) {
   return directory
 }
 
-function resolveDirectoryPath(directory: string) {
-  if (directory.startsWith('~')) {
-    return path.join(os.homedir(), directory.slice(1))
-  }
-  return path.resolve(directory)
-}
-
 async function promptForAlias(configs: SyncConfig[], existingAlias: string) {
   let aliasValid = false
   let newAlias = existingAlias
@@ -248,15 +233,42 @@ async function promptForAlias(configs: SyncConfig[], existingAlias: string) {
   return newAlias
 }
 
-function normalizeFilesToSync(cfg: SyncConfig) {
-  if (!cfg.filesToSync) return
-  cfg.filesToSync = cfg.filesToSync
-    .split(',')
-    .map(s => s.trim())
-    .filter(Boolean)
-    .join(', ')
+export function registerConfigCommand(program: Command) {
+  program.command('config').description('Configure Salesforce Sync process.').action(configCommand)
 }
 
-export function registerConfigCommand(program: Command) {
-  program.command('config').description('Configure Salesforce Sync process.').action(runConfigCommand)
+async function setDefaultTargetOrg(currentTargetOrg?: string) {
+  try {
+    const orgGroups = await loadAsync(() => salesforce.getAvailableOrgs(), {
+      loading: 'Querying Salesforce orgs. Please wait...',
+      success: 'Salesforce orgs retrieved successfully.',
+      error: 'Error: Unable to retrieve Salesforce orgs.',
+    })
+
+    const choices = [
+      ...formatChoicesWithSeparator(orgGroups.scratchOrgs, 'Scratch Orgs'),
+      ...formatChoicesWithSeparator(orgGroups.devHubs, 'Dev Hubs'),
+      ...formatChoicesWithSeparator(orgGroups.sandboxes, 'Sandboxes'),
+      ...formatChoicesWithSeparator(orgGroups.other, 'Other Orgs'),
+    ]
+    if (!choices.length) {
+      log.warning('No target organizations available to set.')
+      return
+    }
+
+    const { selectedOrg } = await inquirer.prompt<{ selectedOrg: string }>([
+      {
+        name: 'selectedOrg',
+        type: 'rawlist',
+        message: 'Select the default target organization:',
+        choices,
+        default: currentTargetOrg,
+      },
+    ])
+
+    config.saveDefaultTargetOrg(selectedOrg)
+    log.success(`Default target organization set to "${selectedOrg}".`)
+  } catch (error) {
+    log.error(composeErrorMessage(error, 'An error occurred while setting the default target organization.'))
+  }
 }
