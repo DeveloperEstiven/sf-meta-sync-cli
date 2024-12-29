@@ -11,7 +11,9 @@ export const stopSpinner = (spinner: Ora, success = true, message = 'Done') => {
   else spinner.fail(chalk.red(message))
 }
 
-const addIconToMessage = (message: string, icon: string) => {
+const addIconToMessage = (icon: string, message?: string) => {
+  if (!message) return ''
+
   const match = message.match(REG_EXP.specialSymbol)
   if (match) {
     return `${match[0]}${icon} ${message.slice(match[0].length)}`
@@ -20,9 +22,9 @@ const addIconToMessage = (message: string, icon: string) => {
 }
 
 export const log = {
-  error: (message: string) => console.error(chalk.red(addIconToMessage(message, '✖'))),
-  success: (message: string) => console.log(chalk.green(addIconToMessage(message, '✔'))),
-  warning: (message: string) => console.warn(chalk.yellow(addIconToMessage(message, 'ℹ'))),
+  error: (message: string) => console.error(chalk.red(addIconToMessage('✖', message))),
+  success: (message: string) => console.log(chalk.green(addIconToMessage('✔', message))),
+  warning: (message: string) => console.warn(chalk.yellow(addIconToMessage('ℹ', message))),
   info: (message: string) => console.info(message),
 }
 
@@ -39,11 +41,15 @@ export const isError = (error: unknown): error is Error => {
 export const execAsync = promisify(exec)
 
 export const composeErrorMessage = (error: unknown, message?: string) => {
-  if (isError(error)) {
-    return `${message}\nError: ${error.message}`
-  } else {
+  if (!isError(error)) {
     return `${message || 'An unknown error occurred'}. ${error}`
   }
+
+  if (error.name === 'ExitPromptError') {
+    return ''
+  }
+
+  return `${message}\nError: ${error.message}`
 }
 
 interface SpinnerMessages {

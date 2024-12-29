@@ -3,7 +3,7 @@
 import chalk from 'chalk'
 import { Command } from 'commander'
 import figlet from 'figlet'
-import { registerPushCommand } from './commands/push.js'
+import { registerConfigCommand } from './commands/config/config.js'
 import { registerSyncCommand } from './commands/sync/sync.js'
 
 const program = new Command()
@@ -24,6 +24,6 @@ printBanner()
 program.name('sf-meta-sync-cli').description('A CLI tool for Salesforce metadata sync').version('1.0.0')
 
 registerSyncCommand(program)
-registerPushCommand(program)
+registerConfigCommand(program)
 
 program.parse(process.argv)
