@@ -1,36 +1,32 @@
 import { Command } from 'commander'
 import { composeErrorMessage, loadAsync, log } from '../../utils/cli-utils.js'
 import { LocalFile, RemoteFile } from '../../utils/file.js'
-import { SalesforceRecord, salesforce } from '../../utils/salesforce-utils.js'
+import { salesforce, SalesforceRecord } from '../../utils/salesforce-utils.js'
 import { WorkspaceManager } from '../../utils/workspace-manager.js'
 import { LocalWorkspace, RemoteWorkspace } from '../../utils/workspace.js'
 import {
+  CompleteSyncOptions,
   displayDiff,
   generateDiff,
   logWithCategories,
+  mergeOptionsWithConfig,
+  PartialSyncOptions,
   promptFileSelection,
   runValidationPipeline,
 } from './sync.utils.js'
-
-export interface SyncOptions {
-  localDir: string
-  fileExtension: string
-  query: string
-  filenameField: string
-  fieldName: string
-  noDiff?: boolean
-}
 
 type FileDiffs = Record<string, string>
 
 const workspaceManager = WorkspaceManager.getInstance()
 
-async function syncCommand(targetOrg: string, options: SyncOptions) {
-  if (!prepareLocalWorkspace(options)) return
-
+async function syncCommand(syncOptions: PartialSyncOptions) {
   try {
+    const options = mergeOptionsWithConfig(syncOptions)
+
+    if (!prepareLocalWorkspace(options)) return
+
     const salesforceRecords = await loadAsync(
-      () => salesforce.query(targetOrg, options.query),
+      () => salesforce.query(options.targetOrg, options.query),
       {
         loading: 'Querying Salesforce metadata. Please wait...',
         success: 'Salesforce metadata retrieved successfully.',
@@ -73,23 +69,25 @@ async function syncCommand(targetOrg: string, options: SyncOptions) {
   }
 }
 
-function prepareLocalWorkspace(options: SyncOptions) {
+function prepareLocalWorkspace(options: CompleteSyncOptions) {
   const localWorkspace = new LocalWorkspace(options.localDir, options.fileExtension)
   workspaceManager.setWorkspace(localWorkspace)
+
   const pipeline = [
     {
       validate: () => localWorkspace.exists(),
       errorMessage: `The local directory "${localWorkspace.localDir}" does not exist.`,
     },
     {
-      validate: () => options.query.includes(options.filenameField),
+      validate: () => options.query.includes(options.filenameField as string),
       errorMessage: `The field "${options.filenameField}" is not present in the SOQL query.`,
     },
   ]
+
   return runValidationPipeline(pipeline)
 }
 
-function initializeRemoteWorkspace(options: SyncOptions, records: SalesforceRecord[]) {
+function initializeRemoteWorkspace(options: CompleteSyncOptions, records: SalesforceRecord[]) {
   const remoteWorkspace = new RemoteWorkspace(
     options.fileExtension,
     records.map(r => ({ name: r[options.filenameField], content: r[options.fieldName] })),
@@ -97,7 +95,7 @@ function initializeRemoteWorkspace(options: SyncOptions, records: SalesforceReco
   workspaceManager.setWorkspace(remoteWorkspace)
 }
 
-function gatherFileDifferences(options: SyncOptions) {
+function gatherFileDifferences(options: CompleteSyncOptions) {
   const { local, remote } = workspaceManager.getWorkspaces()
 
   const remoteFiles = remote.listFiles()
@@ -110,7 +108,8 @@ function gatherFileDifferences(options: SyncOptions) {
     localFile => !remoteFiles.some(remoteFile => remoteFile.name === localFile.name),
   )
 
-  return { remoteOnlyFiles, localOnlyFiles, changedFiles: assessChangedFiles(options.noDiff) }
+  const changedFiles = assessChangedFiles(options.noDiff)
+  return { remoteOnlyFiles, localOnlyFiles, changedFiles }
 }
 
 async function synchronizeRemoteOnlyFiles(files: RemoteFile[]) {
@@ -194,12 +193,13 @@ export function registerSyncCommand(program: Command) {
   program
     .command('sync')
     .description('Sync Salesforce metadata with local files.')
-    .argument('<targetOrg>', 'Salesforce org alias')
-    .option('--local-dir <dir>', 'Local directory for files', '.')
-    .requiredOption('--file-extension <ext>', 'File extension for local files')
-    .requiredOption('--query <query>', 'SOQL query for metadata')
-    .requiredOption('--filename-field <field>', 'Field for filename in Salesforce')
-    .requiredOption('--field-name <field>', 'Field containing file content in Salesforce')
+    .option('--target-org <o>', 'Salesforce org alias')
+    .option('--local-dir <dir>', 'Local directory for files')
+    .option('--file-extension <ext>', 'File extension for local files')
+    .option('--query <query>', 'SOQL query for metadata')
+    .option('--filename-field <field>', 'Field for filename in Salesforce')
+    .option('--field-name <field>', 'Field containing file content in Salesforce')
     .option('--no-diff', 'Disable detailed diff display for changed files', false)
+    .option('-c, --config-alias <a>', 'Alias for the configuration')
     .action(syncCommand)
 }

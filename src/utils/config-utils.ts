@@ -20,6 +20,10 @@ export const config = {
     return configStore.get(CONFIGS_KEY) ?? []
   },
 
+  getConfig: (configAlias: string): SyncConfig | undefined => {
+    return (configStore.get(CONFIGS_KEY) ?? []).find((config: SyncConfig) => config.alias === configAlias)
+  },
+
   saveConfigs: (configs: SyncConfig[]) => {
     configStore.set(CONFIGS_KEY, configs)
   },

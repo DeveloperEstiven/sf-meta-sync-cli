@@ -49,7 +49,7 @@ export const composeErrorMessage = (error: unknown, message?: string) => {
     return ''
   }
 
-  return `${message}\nError: ${error.message}`
+  return `${message ? `${message}\n` : ''}Error: ${error.message}`
 }
 
 interface SpinnerMessages {

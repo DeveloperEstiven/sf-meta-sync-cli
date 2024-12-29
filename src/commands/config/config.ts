@@ -4,7 +4,7 @@ import inquirer from 'inquirer'
 import { composeErrorMessage, loadAsync, log } from '../../utils/cli-utils.js'
 import { config } from '../../utils/config-utils.js'
 import { salesforce } from '../../utils/salesforce-utils.js'
-import { SyncOptions } from '../sync/sync.js'
+import { PartialSyncOptions } from '../sync/sync.utils.js'
 import { formatChoicesWithSeparator, normalizeFilesToSync, resolveDirectoryPath } from './config.utils.js'
 
 const enum GlobalSettings {
@@ -18,7 +18,7 @@ const enum ConfigActions {
   DELETE = '🗑️ DELETE',
 }
 
-export interface SyncConfig extends Partial<SyncOptions> {
+export interface SyncConfig extends PartialSyncOptions {
   alias: string
   filesToSync?: string
 }
