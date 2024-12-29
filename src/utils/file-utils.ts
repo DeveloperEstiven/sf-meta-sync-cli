@@ -1,22 +1,17 @@
 import fs from 'fs'
-import path from 'path'
 
-export const createDirectory = (dir: string) => {
-  if (!fs.existsSync(dir)) {
-    fs.mkdirSync(dir, { recursive: true })
-  }
+export const fileUtils = {
+  write: (filePath: string, content: string) => {
+    fs.writeFileSync(filePath, content)
+  },
+
+  read: (filePath: string) => fs.readFileSync(filePath, 'utf-8'),
+
+  exists: (filePath?: string) => (filePath ? fs.existsSync(filePath) : false),
+
+  getFilesByExtension: (dir: string, extension: string) =>
+    fs
+      .readdirSync(dir)
+      .filter(file => file.endsWith(extension))
+      .map(file => file.replace(extension, '')),
 }
-
-export const writeFile = (filePath: string, content: string) => {
-  fs.writeFileSync(filePath, content)
-}
-
-export const readFile = (filePath: string) => fs.readFileSync(filePath, 'utf-8')
-
-export const checkFileExists = (filePath: string) => fs.existsSync(filePath)
-
-export const getFilesWithExtension = (dir: string, extension: string) =>
-  fs
-    .readdirSync(dir)
-    .filter(file => file.endsWith(extension))
-    .map(file => path.join(dir, file))
