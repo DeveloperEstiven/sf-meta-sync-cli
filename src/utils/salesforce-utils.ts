@@ -39,7 +39,7 @@ interface OrgListResult {
 
 export const salesforce = {
   query: async (targetOrg: string, query: string) => {
-    const command = `sf data query --target-org ${targetOrg} --query "${query}" --json`
+    const command = `sf data query --target-org "${targetOrg}" --query "${query}" --json`
 
     const { stdout } = await execAsync(command)
 
